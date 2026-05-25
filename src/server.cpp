@@ -4,9 +4,19 @@
 #include <nlohmann/json.hpp>
 
 #include <iostream>
+#include <fstream>
 #include <stdexcept>
+#include <csignal>
 
 using json = nlohmann::json;
+
+// Global pointer so the signal handler can flush memory on Ctrl-C
+static ChatServer* g_server = nullptr;
+
+static void on_signal(int)
+{
+    if (g_server) g_server->shutdown();
+}
 
 // ── Helper: parse message array from JSON ──────────────────────────────────────
 static std::vector<Message> parse_history(const json& j)
@@ -24,21 +34,30 @@ static std::vector<Message> parse_history(const json& j)
 // ── ChatServer ─────────────────────────────────────────────────────────────────
 
 ChatServer::ChatServer(std::shared_ptr<InferenceEngine> engine, const ServerConfig& config)
-    : engine_(std::move(engine)), cfg_(config)
-{}
+    : engine_(std::move(engine)), cfg_(config), memory_(config.memory_file)
+{
+    last_session_ = memory_.load_last_session();
+}
+
+void ChatServer::shutdown()
+{
+    memory_.save_session();
+    svr_.stop();
+}
 
 void ChatServer::run()
 {
-    httplib::Server svr;
+    g_server = this;
+    std::signal(SIGINT,  on_signal);
+    std::signal(SIGTERM, on_signal);
 
     // ── GET /health ────────────────────────────────────────────────────────────
-    svr.Get("/health", [](const httplib::Request&, httplib::Response& res) {
+    svr_.Get("/health", [](const httplib::Request&, httplib::Response& res) {
         res.set_content(R"({"status":"ok"})", "application/json");
     });
 
     // ── POST /api/chat ─────────────────────────────────────────────────────────
-    svr.Post("/api/chat", [this](const httplib::Request& req, httplib::Response& res) {
-        // Parse request body
+    svr_.Post("/api/chat", [this](const httplib::Request& req, httplib::Response& res) {
         json body;
         try {
             body = json::parse(req.body);
@@ -49,7 +68,6 @@ void ChatServer::run()
             return;
         }
 
-        // Validate required fields
         if (!body.contains("message") || !body["message"].is_string()) {
             res.status = 400;
             res.set_content(json{{"error", "Missing or invalid 'message' field"}}.dump(),
@@ -57,26 +75,27 @@ void ChatServer::run()
             return;
         }
 
-        // Build history: prior turns + current user message
-        std::vector<Message> history;
-        if (body.contains("history") && body["history"].is_array()) {
-            try { history = parse_history(body["history"]); }
-            catch (...) { /* ignore malformed history */ }
-        }
-        history.push_back({"user", body["message"].get<std::string>()});
+        const std::string user_msg = body["message"].get<std::string>();
 
-        // Run inference
+        // Build history: inject last session as prior context, then current session turns
+        std::vector<Message> history = last_session_;
+        if (body.contains("history") && body["history"].is_array()) {
+            try {
+                for (const auto& m : parse_history(body["history"]))
+                    history.push_back(m);
+            } catch (...) {}
+        }
+        history.push_back({"user", user_msg});
+
         try {
             std::string response = engine_->generate(
-                history,
-                cfg_.max_tokens,
-                cfg_.temperature
+                history, cfg_.max_tokens, cfg_.temperature
             );
 
-            res.set_content(
-                json{{"response", response}}.dump(),
-                "application/json"
-            );
+            // Log this exchange to memory
+            memory_.record(user_msg, response);
+
+            res.set_content(json{{"response", response}}.dump(), "application/json");
         } catch (const std::exception& e) {
             res.status = 500;
             res.set_content(json{{"error", std::string("Inference error: ") + e.what()}}.dump(),
@@ -85,10 +104,9 @@ void ChatServer::run()
     });
 
     // ── Serve static frontend files ────────────────────────────────────────────
-    svr.set_mount_point("/", cfg_.static_dir);
+    svr_.set_mount_point("/", cfg_.static_dir);
 
-    // Fallback: serve index.html for any unmatched GET (SPA-style)
-    svr.Get(".*", [&](const httplib::Request&, httplib::Response& res) {
+    svr_.Get(".*", [&](const httplib::Request&, httplib::Response& res) {
         const std::string index_path = cfg_.static_dir + "/index.html";
         std::ifstream f(index_path);
         if (f) {
@@ -105,5 +123,9 @@ void ChatServer::run()
               << cfg_.host << ":" << cfg_.port << "\n";
     std::cout << "[server] Press Ctrl-C to stop.\n";
 
-    svr.listen(cfg_.host, cfg_.port);
+    svr_.listen(cfg_.host, cfg_.port);
+
+    // Reached when svr_.stop() is called from shutdown()
+    memory_.save_session();
+    std::cout << "[server] Goodbye.\n";
 }

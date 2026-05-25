@@ -48,6 +48,7 @@ add_executable(zathas_ai
   src/main.cpp
   src/inference.cpp
   src/server.cpp
+  src/memory.cpp
 )
 
 target_include_directories(zathas_ai PRIVATE
