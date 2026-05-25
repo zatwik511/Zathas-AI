@@ -30,6 +30,8 @@ FetchContent_Declare(
   GIT_TAG        v0.18.5
   GIT_SHALLOW    TRUE
 )
+set(HTTPLIB_USE_OPENSSL_IF_AVAILABLE OFF CACHE BOOL "" FORCE)
+set(HTTPLIB_USE_ZLIB_IF_AVAILABLE   OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(httplib)
 
 # ── nlohmann/json ──────────────────────────────────────────────────────────────

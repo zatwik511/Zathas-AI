@@ -38,8 +38,9 @@ public:
     bool is_loaded() const { return ctx_ != nullptr; }
 
 private:
-    struct llama_model* model_ = nullptr;
-    struct llama_context* ctx_ = nullptr;
+    struct llama_model* model_   = nullptr;
+    struct llama_context* ctx_   = nullptr;
+    const struct llama_vocab* vocab_ = nullptr;
 
     std::string build_prompt(const std::vector<Message>& history) const;
 };

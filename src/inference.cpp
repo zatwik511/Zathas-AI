@@ -34,6 +34,8 @@ InferenceEngine::InferenceEngine(const std::string& model_path,
         throw std::runtime_error("Failed to create llama context");
     }
 
+    vocab_ = llama_model_get_vocab(model_);
+
     std::cout << "[inference] Model loaded: " << model_path << "\n";
 }
 
@@ -48,12 +50,17 @@ InferenceEngine::~InferenceEngine()
 // Uses ChatML format — compatible with most GGUF instruction-tuned models.
 std::string InferenceEngine::build_prompt(const std::vector<Message>& history) const
 {
+    // Llama 3 native format — <|eot_id|> is the real stop token for this model
     std::ostringstream oss;
+    oss << "<|start_header_id|>system<|end_header_id|>\n\n"
+        << "You are Zathas, an AI assistant. "
+        << "Your own name is Zathas — not the user's name. "
+        << "Be concise and helpful. Never break character.<|eot_id|>";
     for (const auto& msg : history) {
-        oss << "<|im_start|>" << msg.role << "\n"
-            << msg.content   << "<|im_end|>\n";
+        oss << "<|start_header_id|>" << msg.role << "<|end_header_id|>\n\n"
+            << msg.content << "<|eot_id|>";
     }
-    oss << "<|im_start|>assistant\n";
+    oss << "<|start_header_id|>assistant<|end_header_id|>\n\n";
     return oss.str();
 }
 
@@ -75,7 +82,7 @@ std::string InferenceEngine::generate(const std::vector<Message>& history,
     const int n_prompt_tokens = static_cast<int>(prompt.size()) * 2 + 16; // upper bound
     std::vector<llama_token> tokens(n_prompt_tokens);
     const int n_tokens = llama_tokenize(
-        model_,
+        vocab_,
         prompt.c_str(),
         static_cast<int32_t>(prompt.size()),
         tokens.data(),
@@ -89,7 +96,7 @@ std::string InferenceEngine::generate(const std::vector<Message>& history,
     tokens.resize(n_tokens);
 
     // Reset KV cache and eval prompt
-    llama_kv_cache_clear(ctx_);
+    llama_kv_self_clear(ctx_);
 
     llama_batch batch = llama_batch_get_one(tokens.data(), static_cast<int32_t>(tokens.size()));
     if (llama_decode(ctx_, batch) != 0) {
@@ -105,8 +112,8 @@ std::string InferenceEngine::generate(const std::vector<Message>& history,
     result.reserve(512);
 
     // Detect end tokens
-    const llama_token eos_id  = llama_token_eos(model_);
-    const llama_token eot_id  = llama_token_eot(model_);  // <|im_end|>
+    const llama_token eos_id  = llama_vocab_eos(vocab_);
+    const llama_token eot_id  = llama_vocab_eot(vocab_);  // <|im_end|>
 
     for (int i = 0; i < max_tokens; ++i) {
         const llama_token new_token = llama_sampler_sample(sampler, ctx_, -1);
@@ -116,7 +123,7 @@ std::string InferenceEngine::generate(const std::vector<Message>& history,
 
         // Convert token to string
         char buf[256];
-        const int n = llama_token_to_piece(model_, new_token, buf, sizeof(buf) - 1, 0, true);
+        const int n = llama_token_to_piece(vocab_, new_token, buf, sizeof(buf) - 1, 0, true);
         if (n < 0) continue;
         buf[n] = '\0';
 

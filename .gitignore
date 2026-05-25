@@ -1,0 +1,17 @@
+# Build output
+build/
+
+# Model files (too large for git)
+*.gguf
+*.bin
+*.ggml
+
+# Environment / secrets
+.env
+
+# IDE / OS
+.vscode/
+.vs/
+*.user
+Thumbs.db
+.DS_Store
