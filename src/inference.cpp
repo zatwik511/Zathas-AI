@@ -95,12 +95,27 @@ std::string InferenceEngine::generate(const std::vector<Message>& history,
     }
     tokens.resize(n_tokens);
 
-    // Reset KV cache and eval prompt
+    // If prompt exceeds context window, drop oldest tokens (keep room for response)
+    const int n_ctx   = static_cast<int>(llama_n_ctx(ctx_));
+    const int n_batch = llama_n_batch(ctx_);
+    const int max_prompt = n_ctx - max_tokens - 8;
+    int prompt_start = 0;
+    int prompt_len   = static_cast<int>(tokens.size());
+    if (prompt_len > max_prompt) {
+        prompt_start = prompt_len - max_prompt;
+        prompt_len   = max_prompt;
+    }
+
+    // Reset KV cache and eval prompt in chunks of n_batch to avoid overflow
     llama_kv_self_clear(ctx_);
 
-    llama_batch batch = llama_batch_get_one(tokens.data(), static_cast<int32_t>(tokens.size()));
-    if (llama_decode(ctx_, batch) != 0) {
-        throw std::runtime_error("llama_decode failed on prompt");
+    for (int i = 0; i < prompt_len; i += n_batch) {
+        const int chunk = std::min(n_batch, prompt_len - i);
+        llama_batch batch = llama_batch_get_one(tokens.data() + prompt_start + i,
+                                                static_cast<int32_t>(chunk));
+        if (llama_decode(ctx_, batch) != 0) {
+            throw std::runtime_error("llama_decode failed on prompt chunk");
+        }
     }
 
     // Sampling params
