@@ -9,6 +9,10 @@ build/
 # Environment / secrets
 .env
 
+# Private conversation data
+memory.json
+*.txt
+
 # IDE / OS
 .vscode/
 .vs/
