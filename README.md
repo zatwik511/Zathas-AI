@@ -147,4 +147,6 @@ Navigate to **http://localhost:8080** in your browser.
 
 ## License
 
-MIT
+Copyright (c) 2026 Satwik Bhatnagar. All rights reserved.
+
+This repository is public for portfolio and showcase purposes. No license is granted to use, copy, modify, or distribute this code. See [LICENSE](LICENSE) for details.
