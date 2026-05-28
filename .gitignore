@@ -5,14 +5,24 @@ build/
 *.gguf
 *.bin
 *.ggml
+models/**
+!models/.gitkeep
 
 # Environment / secrets
 .env
 
-# Private conversation data
-memory.json
-memory/
+# Private conversation data — keep directory scaffolding, ignore all content
+memory/**
+!memory/.gitkeep
+!memory/public/
+memory/public/**
+!memory/public/.gitkeep
+data/**
+!data/.gitkeep
+
+# Session and conversation files wherever they land
 *.txt
+*.summary
 
 # IDE / OS
 .vscode/
@@ -20,9 +30,15 @@ memory/
 *.user
 Thumbs.db
 .DS_Store
+desktop.ini
 
 # Claude Code local settings
 .claude/
 
-# Empty GGML dir
+# Node / frontend build artefacts (if a React frontend is added later)
+node_modules/
+frontend-react/dist/
+
+# Legacy / misc
 ggml/
+memory.json

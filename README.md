@@ -8,12 +8,12 @@ A full-stack AI chatbot with a pure C++ backend powered by [llama.cpp](https://g
 
 ```
 browser ──HTTP──▶ cpp-httplib server (C++)
-                    ├── POST /api/chat  → llama.cpp inference
-                    ├── GET  /health    → { "status": "ok" }
-                    └── GET  /*         → frontend/index.html
+                    ├── POST /api/chat   → public persona, SSE streaming
+                    ├── GET  /health     → { "status": "ok" }
+                    └── GET  /*          → frontend/index.html
 ```
 
-Conversation history is maintained in the browser and sent with every request, keeping the backend fully stateless.
+Persistent memory is stored in plain-text session files under `memory/`. Recent sessions are kept verbatim; older ones are compressed into `.summary` files automatically on shutdown.
 
 ---
 
@@ -25,11 +25,13 @@ Conversation history is maintained in the browser and sent with every request, k
 | C++ compiler | GCC ≥ 11 / Clang ≥ 14 / MSVC 2022 |
 | Git | any recent version |
 
-> **GPU (optional):** CUDA toolkit if you want GPU offload via `--gpu-layers`.
+> **GPU (optional):** Vulkan or CUDA. Pass `--gpu-layers <N>` at runtime.
 
 ---
 
-## 1. Clone the repository
+## Setup
+
+### 1. Clone the repository
 
 ```bash
 git clone https://github.com/zatwik511/Zathas-AI.git
@@ -38,92 +40,87 @@ cd Zathas-AI
 
 No submodules — dependencies are pulled automatically by CMake's `FetchContent`.
 
----
+### 2. Download a model
 
-## 2. Download a model
+Place your GGUF model in the `models/` directory (or anywhere — you reference it by path).
 
-Zathas AI requires a GGUF-format model. Two lightweight options that run well on CPU:
-
-### Phi-3 Mini (recommended for most hardware)
-- **Size:** ~2 GB (Q4_K_M quantisation)
-- **URL:** https://huggingface.co/microsoft/Phi-3-mini-4k-instruct-gguf
-
+**Llama 3.2 1B Instruct** (recommended starting point — ~0.8 GB):
 ```bash
-# Example — pick the Q4_K_M variant
-wget https://huggingface.co/microsoft/Phi-3-mini-4k-instruct-gguf/resolve/main/Phi-3-mini-4k-instruct-q4.gguf
+# Download from Hugging Face
+wget -P models/ https://huggingface.co/bartowski/Llama-3.2-1B-Instruct-GGUF/resolve/main/Llama-3.2-1B-Instruct-Q4_K_M.gguf
 ```
 
-### Llama 3.2 1B (ultra-light, for low-RAM machines)
-- **Size:** ~0.8 GB (Q4_K_M quantisation)
-- **URL:** https://huggingface.co/bartowski/Llama-3.2-1B-Instruct-GGUF
-
+**Phi-3 Mini** (~2 GB, higher quality):
 ```bash
-wget https://huggingface.co/bartowski/Llama-3.2-1B-Instruct-GGUF/resolve/main/Llama-3.2-1B-Instruct-Q4_K_M.gguf
+wget -P models/ https://huggingface.co/microsoft/Phi-3-mini-4k-instruct-gguf/resolve/main/Phi-3-mini-4k-instruct-q4.gguf
 ```
 
----
+### 3. Configure `.env`
 
-## 3. Build
+```bash
+cp .env.example .env
+# Edit .env and set MODEL_PATH (and optionally PRIME_TOKEN)
+```
+
+```ini
+MODEL_PATH=./models/Llama-3.2-1B-Instruct-Q4_K_M.gguf
+PRIME_TOKEN=your-secret-token
+```
+
+`PRIME_TOKEN` gates access to the private conversation endpoint. Leave empty to disable authentication.
+
+### 4. Build
 
 ```bash
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel
 ```
 
-The binary is placed at `build/zathas_ai` (Linux/macOS) or `build\Release\zathas_ai.exe` (Windows).
+The binary is placed at `build/zathas_ai` (Linux/macOS) or `build\zathas_ai.exe` (Windows/MinGW).
 
 > **First build** downloads llama.cpp, cpp-httplib, and nlohmann/json — expect a few minutes.
 
-### GPU build (CUDA)
-
+**GPU build (Vulkan — AMD/Intel):**
 ```bash
-cmake -B build -DCMAKE_BUILD_TYPE=Release -DLLAMA_CUDA=ON
+cmake -B build -DCMAKE_BUILD_TYPE=Release -DGGML_VULKAN=ON
 cmake --build build --parallel
 ```
 
----
+**GPU build (CUDA — NVIDIA):**
+```bash
+cmake -B build -DCMAKE_BUILD_TYPE=Release -DGGML_CUDA=ON
+cmake --build build --parallel
+```
 
-## 4. Run
-
-### Via CLI argument
+### 5. Run
 
 ```bash
-./build/zathas_ai --model ./Phi-3-mini-4k-instruct-q4.gguf
-```
-
-### Via .env file
-
-Create a `.env` file in the project root:
-
-```
-MODEL_PATH=./Phi-3-mini-4k-instruct-q4.gguf
-```
-
-Then run without `--model`:
-
-```bash
+# Uses MODEL_PATH from .env
 ./build/zathas_ai
+
+# Or pass the model path directly
+./build/zathas_ai --model ./models/Llama-3.2-1B-Instruct-Q4_K_M.gguf --threads 8 --gpu-layers 20
 ```
-
-### All options
-
-```
---model       <path>   Path to the .gguf model file (required)
---port        <int>    HTTP port                       (default: 8080)
---host        <addr>   Host address                   (default: 0.0.0.0)
---ctx         <int>    Context window size in tokens  (default: 4096)
---threads     <int>    CPU threads for inference      (default: 4)
---gpu-layers  <int>    Layers to offload to GPU       (default: 0)
---max-tokens  <int>    Max tokens per response        (default: 512)
---temperature <float>  Sampling temperature           (default: 0.7)
---static-dir  <path>   Frontend directory             (default: ./frontend)
-```
-
----
-
-## 5. Open the chat
 
 Navigate to **http://localhost:8080** in your browser.
+
+---
+
+## All options
+
+```
+--model         <path>    Path to the .gguf model file (required if not in .env)
+--port          <int>     HTTP port                         (default: 8080)
+--host          <addr>    Host address                      (default: 0.0.0.0)
+--ctx           <int>     Context window size in tokens     (default: 4096)
+--threads       <int>     CPU threads for inference         (default: 4)
+--gpu-layers    <int>     Layers to offload to GPU          (default: 0)
+--max-tokens    <int>     Max tokens per response           (default: 512)
+--temperature   <float>   Sampling temperature              (default: 0.7)
+--static-dir    <path>    Frontend directory                (default: ./frontend)
+--recent-depth  <int>     Verbatim sessions before summarising (default: 10)
+--env           <path>    Path to .env file                 (default: .env)
+```
 
 ---
 
@@ -131,13 +128,18 @@ Navigate to **http://localhost:8080** in your browser.
 
 ```
 .
-├── CMakeLists.txt          # Build system (FetchContent for all deps)
+├── CMakeLists.txt           # Build system — FetchContent for all deps
+├── .env.example             # Template — copy to .env and fill in values
 ├── frontend/
-│   └── index.html          # Single-file vanilla JS chat UI
+│   └── index.html           # Single-file vanilla JS chat UI
+├── memory/                  # Conversation memory (gitignored — only .gitkeep committed)
+│   └── public/              # Public conversation summaries
+├── models/                  # Place .gguf model files here (gitignored)
 ├── src/
-│   ├── main.cpp            # Entry point, CLI parsing, .env loading
-│   ├── inference.h/.cpp    # llama.cpp wrapper — load model, run generation
-│   └── server.h/.cpp       # cpp-httplib HTTP server, /api/chat, /health
+│   ├── main.cpp             # Entry point, CLI parsing, .env loading
+│   ├── inference.h/.cpp     # llama.cpp wrapper — load model, run generation
+│   ├── memory.h/.cpp        # Persistent session memory with summarisation
+│   └── server.h/.cpp        # HTTP server — /api/chat, /health, static files
 └── README.md
 ```
 
