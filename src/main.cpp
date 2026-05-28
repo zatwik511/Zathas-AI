@@ -1,3 +1,4 @@
+
 #include "inference.h"
 #include "server.h"
 
@@ -39,8 +40,9 @@ static void print_usage(const char* prog)
         << "  --gpu-layers  <int>    Layers to offload to GPU      (default: 0)\n"
         << "  --max-tokens  <int>    Max tokens per response       (default: 512)\n"
         << "  --temperature <float>  Sampling temperature          (default: 0.7)\n"
-        << "  --static-dir  <path>   Directory with frontend files (default: ./frontend)\n"
-        << "  --env         <path>   Load settings from .env file  (default: .env)\n"
+        << "  --static-dir    <path>   Directory with frontend files (default: ./frontend)\n"
+        << "  --memory-depth  <int>    Past sessions to load as context (default: 5)\n"
+        << "  --env           <path>   Load settings from .env file  (default: .env)\n"
         << "\n"
         << "You can also set MODEL_PATH in a .env file instead of --model.\n";
 }
@@ -74,8 +76,9 @@ int main(int argc, char* argv[])
         else if (arg == "--gpu-layers")  n_gpu_layers         = std::stoi(next());
         else if (arg == "--max-tokens")  srv_cfg.max_tokens   = std::stoi(next());
         else if (arg == "--temperature") srv_cfg.temperature  = std::stof(next());
-        else if (arg == "--static-dir")  srv_cfg.static_dir   = next();
-        else if (arg == "--env")         env_file             = next();
+        else if (arg == "--static-dir")    srv_cfg.static_dir    = next();
+        else if (arg == "--memory-depth")  srv_cfg.memory_depth  = std::stoi(next());
+        else if (arg == "--env")           env_file              = next();
         else if (arg == "--help" || arg == "-h") { print_usage(argv[0]); return 0; }
         else { std::cerr << "Unknown option: " << arg << "\n"; print_usage(argv[0]); return 1; }
     }

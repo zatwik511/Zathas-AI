@@ -11,6 +11,7 @@ build/
 
 # Private conversation data
 memory.json
+memory/
 *.txt
 
 # IDE / OS

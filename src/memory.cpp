@@ -1,86 +1,123 @@
 #include "memory.h"
-#include <nlohmann/json.hpp>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <algorithm>
+#include <chrono>
+#include <ctime>
 
-using json = nlohmann::json;
+namespace fs = std::filesystem;
 
-ConversationMemory::ConversationMemory(const std::string& file_path)
-    : path_(file_path)
-{}
+static std::string make_timestamp()
+{
+    auto now = std::chrono::system_clock::now();
+    std::time_t t = std::chrono::system_clock::to_time_t(now);
+    std::tm tm{};
+#ifdef _WIN32
+    localtime_s(&tm, &t);
+#else
+    localtime_r(&t, &tm);
+#endif
+    char buf[20];
+    std::strftime(buf, sizeof(buf), "%Y-%m-%d_%H-%M", &tm);
+    return buf;
+}
+
+ConversationMemory::ConversationMemory(MemoryType type, int depth)
+    : depth_(depth)
+{
+    dir_ = (type == MemoryType::PRIVATE) ? "./memory/private/" : "./memory/public/";
+    fs::create_directories(dir_);
+}
 
 void ConversationMemory::record(const std::string& user_msg,
                                 const std::string& assistant_msg)
 {
     current_session_.push_back({"user",      user_msg});
     current_session_.push_back({"assistant", assistant_msg});
-    save_session();  // persist after every exchange so hard kills don't lose data
+    save_session();
 }
 
 void ConversationMemory::save_session()
 {
     if (current_session_.empty()) return;
 
-    // Load all sessions, replace or append the current one (last slot)
-    json all_sessions = json::array();
-    {
-        std::ifstream f(path_);
-        if (f.is_open()) {
-            try { all_sessions = json::parse(f); }
-            catch (...) { all_sessions = json::array(); }
-        }
+    if (current_file_.empty())
+        current_file_ = dir_ + make_timestamp() + ".txt";
+
+    std::ofstream f(current_file_);
+    if (!f.is_open()) {
+        std::cerr << "[memory] Warning: could not write to " << current_file_ << "\n";
+        return;
     }
 
-    // Rebuild current session as JSON
-    json session = json::array();
-    for (const auto& msg : current_session_) {
-        session.push_back({ {"role", msg.role}, {"content", msg.content} });
+    // Each exchange: [User]: / [Zathas]: blocks terminated by ---
+    for (size_t i = 0; i + 1 < current_session_.size(); i += 2) {
+        f << "[User]: "   << current_session_[i].content     << "\n"
+          << "[Zathas]: " << current_session_[i + 1].content << "\n"
+          << "---\n";
     }
 
-    // Overwrite the last slot if it's the same session (we write after every turn),
-    // otherwise append a new one.
-    if (!all_sessions.empty() && session_slot_ == static_cast<int>(all_sessions.size()) - 1) {
-        all_sessions.back() = session;
-    } else {
-        all_sessions.push_back(session);
-        session_slot_ = static_cast<int>(all_sessions.size()) - 1;
-    }
-
-    // Keep only the last 20 sessions
-    if (all_sessions.size() > 20) {
-        all_sessions.erase(all_sessions.begin(),
-                           all_sessions.begin() + (static_cast<int>(all_sessions.size()) - 20));
-        session_slot_ = 19;
-    }
-
-    std::ofstream f(path_);
-    if (f.is_open()) {
-        f << all_sessions.dump(2);
-        std::cout << "[memory] Saved " << current_session_.size() / 2
-                  << " exchanges to " << path_ << "\n";
-    } else {
-        std::cerr << "[memory] Warning: could not write to " << path_ << "\n";
-    }
+    std::cout << "[memory] Saved " << current_session_.size() / 2
+              << " exchanges to " << current_file_ << "\n";
 }
 
 std::vector<Message> ConversationMemory::load_last_session() const
 {
-    std::ifstream f(path_);
-    if (!f.is_open()) return {};
+    std::vector<fs::path> files;
+    std::error_code ec;
+    for (const auto& entry : fs::directory_iterator(dir_, ec))
+        if (entry.path().extension() == ".txt")
+            files.push_back(entry.path());
 
-    json all_sessions;
-    try { all_sessions = json::parse(f); }
-    catch (...) { return {}; }
+    if (files.empty()) return {};
 
-    if (all_sessions.empty()) return {};
+    std::sort(files.begin(), files.end());
 
-    const auto& last = all_sessions.back();
+    int start = std::max(0, static_cast<int>(files.size()) - depth_);
+
     std::vector<Message> msgs;
-    for (const auto& m : last) {
-        msgs.push_back({ m.at("role").get<std::string>(),
-                         m.at("content").get<std::string>() });
+    int total_exchanges = 0;
+
+    for (int fi = start; fi < static_cast<int>(files.size()); ++fi) {
+        std::ifstream f(files[fi]);
+        if (!f.is_open()) continue;
+
+        enum class St { NONE, USER, ZATHAS };
+        St state = St::NONE;
+        std::string user_buf, zathas_buf;
+
+        auto flush_exchange = [&]() {
+            if (!user_buf.empty() && !zathas_buf.empty()) {
+                msgs.push_back({"user",      user_buf});
+                msgs.push_back({"assistant", zathas_buf});
+                ++total_exchanges;
+            }
+            user_buf.clear();
+            zathas_buf.clear();
+            state = St::NONE;
+        };
+
+        std::string line;
+        while (std::getline(f, line)) {
+            if (line == "---") {
+                flush_exchange();
+            } else if (line.rfind("[User]: ", 0) == 0) {
+                user_buf = line.substr(8);
+                state    = St::USER;
+            } else if (line.rfind("[Zathas]: ", 0) == 0) {
+                zathas_buf = line.substr(10);
+                state      = St::ZATHAS;
+            } else {
+                if      (state == St::USER)   user_buf   += "\n" + line;
+                else if (state == St::ZATHAS) zathas_buf += "\n" + line;
+            }
+        }
+        flush_exchange();  // handle file with no trailing ---
     }
-    std::cout << "[memory] Loaded " << msgs.size() / 2
-              << " exchanges from previous session\n";
+
+    int n = static_cast<int>(files.size()) - start;
+    std::cout << "[memory] Loaded " << total_exchanges
+              << " exchanges from " << n << " session(s)\n";
     return msgs;
 }

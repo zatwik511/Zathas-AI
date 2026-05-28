@@ -34,7 +34,7 @@ static std::vector<Message> parse_history(const json& j)
 // ── ChatServer ─────────────────────────────────────────────────────────────────
 
 ChatServer::ChatServer(std::shared_ptr<InferenceEngine> engine, const ServerConfig& config)
-    : engine_(std::move(engine)), cfg_(config), memory_(config.memory_file)
+    : engine_(std::move(engine)), cfg_(config), memory_(MemoryType::PRIVATE, config.memory_depth)
 {
     last_session_ = memory_.load_last_session();
 }
