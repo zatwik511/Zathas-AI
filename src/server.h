@@ -9,7 +9,7 @@ struct ServerConfig {
     std::string host         = "0.0.0.0";
     int         port         = 8080;
     std::string static_dir   = "./frontend";
-    int         memory_depth = 5;
+    int         recent_depth = 10;
     int         max_tokens   = 512;
     float       temperature  = 0.7f;
 };

@@ -41,7 +41,7 @@ static void print_usage(const char* prog)
         << "  --max-tokens  <int>    Max tokens per response       (default: 512)\n"
         << "  --temperature <float>  Sampling temperature          (default: 0.7)\n"
         << "  --static-dir    <path>   Directory with frontend files (default: ./frontend)\n"
-        << "  --memory-depth  <int>    Past sessions to load as context (default: 5)\n"
+        << "  --recent-depth  <int>    Verbatim sessions kept before summarising (default: 10)\n"
         << "  --env           <path>   Load settings from .env file  (default: .env)\n"
         << "\n"
         << "You can also set MODEL_PATH in a .env file instead of --model.\n";
@@ -77,7 +77,7 @@ int main(int argc, char* argv[])
         else if (arg == "--max-tokens")  srv_cfg.max_tokens   = std::stoi(next());
         else if (arg == "--temperature") srv_cfg.temperature  = std::stof(next());
         else if (arg == "--static-dir")    srv_cfg.static_dir    = next();
-        else if (arg == "--memory-depth")  srv_cfg.memory_depth  = std::stoi(next());
+        else if (arg == "--recent-depth")   srv_cfg.recent_depth  = std::stoi(next());
         else if (arg == "--env")           env_file              = next();
         else if (arg == "--help" || arg == "-h") { print_usage(argv[0]); return 0; }
         else { std::cerr << "Unknown option: " << arg << "\n"; print_usage(argv[0]); return 1; }

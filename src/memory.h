@@ -5,12 +5,13 @@
 
 enum class MemoryType { PRIVATE, PUBLIC };
 
-// Persists conversation sessions as human-readable .txt files under
-// ./memory/private/ or ./memory/public/, named by timestamp.
-// On startup, loads the last `depth` session files as prior context.
+// Two-layer persistent memory:
+//   Layer 1 — verbatim: the last `recent_depth` session .txt files
+//   Layer 2 — compressed: .summary files for all older sessions
+// Sessions are saved as timestamped .txt files under ./memory/private/ or ./memory/public/.
 class ConversationMemory {
 public:
-    ConversationMemory(MemoryType type, int depth = 5);
+    ConversationMemory(MemoryType type, int recent_depth = 10);
 
     // Append a completed exchange and flush to disk immediately.
     void record(const std::string& user_msg, const std::string& assistant_msg);
@@ -18,12 +19,16 @@ public:
     // Write current session to its timestamp file (overwrites on repeat calls).
     void save_session();
 
-    // Return messages from the last `depth` session files.
-    std::vector<Message> load_last_session() const;
+    // Build two-layer context: summaries of old sessions + verbatim recent sessions.
+    std::vector<Message> load_context() const;
+
+    // Summarise sessions older than recent_depth using the inference engine.
+    // Writes a .summary file alongside each original .txt. Skips already-summarised files.
+    void summarise_old_sessions(InferenceEngine& engine, int max_tokens = 300);
 
 private:
     std::string          dir_;
-    int                  depth_;
+    int                  recent_depth_;
     std::vector<Message> current_session_;
-    std::string          current_file_;   // set on first save, reused for the session
+    std::string          current_file_;
 };

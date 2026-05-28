@@ -34,9 +34,9 @@ static std::vector<Message> parse_history(const json& j)
 // ── ChatServer ─────────────────────────────────────────────────────────────────
 
 ChatServer::ChatServer(std::shared_ptr<InferenceEngine> engine, const ServerConfig& config)
-    : engine_(std::move(engine)), cfg_(config), memory_(MemoryType::PRIVATE, config.memory_depth)
+    : engine_(std::move(engine)), cfg_(config), memory_(MemoryType::PRIVATE, config.recent_depth)
 {
-    last_session_ = memory_.load_last_session();
+    last_session_ = memory_.load_context();
 }
 
 void ChatServer::shutdown()
@@ -127,5 +127,6 @@ void ChatServer::run()
 
     // Reached when svr_.stop() is called from shutdown()
     memory_.save_session();
+    memory_.summarise_old_sessions(*engine_);
     std::cout << "[server] Goodbye.\n";
 }
