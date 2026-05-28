@@ -12,6 +12,7 @@ struct ServerConfig {
     int         recent_depth = 10;
     int         max_tokens   = 512;
     float       temperature  = 0.7f;
+    std::string prime_token;   // read from PRIME_TOKEN in .env; empty = no auth required
 };
 
 class ChatServer {
@@ -21,14 +22,15 @@ public:
     // Blocks until the server stops (Ctrl-C / SIGINT).
     void run();
 
-    // Save current session and stop — called from signal handler.
+    // Flush both memory instances and stop — called from signal handler.
     void shutdown();
 
 private:
     std::shared_ptr<InferenceEngine>  engine_;
     ServerConfig                      cfg_;
-    ConversationMemory                memory_;
-    std::vector<Message>              last_session_;
+    ConversationMemory                private_memory_;
+    ConversationMemory                public_memory_;
+    std::vector<Message>              private_history_;
     std::string                       public_summary_;
     httplib::Server                   svr_;
 };

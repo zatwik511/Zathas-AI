@@ -83,16 +83,15 @@ int main(int argc, char* argv[])
         else { std::cerr << "Unknown option: " << arg << "\n"; print_usage(argv[0]); return 1; }
     }
 
-    // ── Fall back to .env for model path ───────────────────────────────────────
-    if (model_path.empty()) {
+    // ── Fall back to .env for model path and secrets ──────────────────────────
+    if (model_path.empty())
         model_path = read_env_file(env_file, "MODEL_PATH");
-    }
     if (model_path.empty()) {
-        // Last resort: check environment variable
-        if (const char* env_val = std::getenv("MODEL_PATH")) {
+        if (const char* env_val = std::getenv("MODEL_PATH"))
             model_path = env_val;
-        }
     }
+    // PRIME_TOKEN is only read from .env — never a CLI flag (would appear in `ps`)
+    srv_cfg.prime_token = read_env_file(env_file, "PRIME_TOKEN");
     if (model_path.empty()) {
         std::cerr << "Error: No model path specified.\n\n";
         print_usage(argv[0]);
