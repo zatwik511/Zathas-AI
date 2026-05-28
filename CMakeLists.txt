@@ -43,12 +43,17 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(nlohmann_json)
 
+# ── zlib (for PDF FlateDecode decompression) ──────────────────────────────────
+# Install via MSYS2: pacman -S mingw-w64-ucrt-x86_64-zlib
+find_package(ZLIB REQUIRED)
+
 # ── Main executable ────────────────────────────────────────────────────────────
 add_executable(zathas_ai
   src/main.cpp
   src/inference.cpp
   src/server.cpp
   src/memory.cpp
+  src/pdf_extract.cpp
 )
 
 target_include_directories(zathas_ai PRIVATE
@@ -59,6 +64,7 @@ target_link_libraries(zathas_ai PRIVATE
   llama
   httplib::httplib
   nlohmann_json::nlohmann_json
+  ZLIB::ZLIB
 )
 
 # Copy frontend files next to the binary after build

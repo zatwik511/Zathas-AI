@@ -11,8 +11,9 @@ struct Message {
 // Tiered context passed to generate(). Built by the server on every request.
 struct ContextLayers {
     std::string          system_prompt;
-    std::vector<Message> private_history;   // highest priority — loaded from saved sessions
-    std::string          public_summary;    // background knowledge; empty if no public memory
+    std::vector<Message> private_history;   // loaded from saved sessions
+    std::string          public_summary;    // background world knowledge
+    std::string          document;          // uploaded document text; empty if none
     std::vector<Message> current_session;   // live turns from the current conversation
 };
 

@@ -6,6 +6,7 @@ import { useChat } from './hooks/useChat'
 export default function App() {
   const { messages, streaming, sendMessage } = useChat('/api/chat')
   const [dark, setDark] = useState(true)
+  const [doc, setDoc] = useState(null)   // { id, name } | null
   const bottomRef = useRef(null)
 
   useEffect(() => {
@@ -78,7 +79,12 @@ export default function App() {
         )}
       </main>
 
-      <ChatInput onSend={sendMessage} disabled={streaming} />
+      <ChatInput
+        onSend={(text) => sendMessage(text, doc?.id)}
+        disabled={streaming}
+        doc={doc}
+        onDocChange={setDoc}
+      />
     </div>
   )
 }

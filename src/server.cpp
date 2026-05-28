@@ -1,4 +1,5 @@
 #include "server.h"
+#include "pdf_extract.h"
 
 #include <httplib.h>
 #include <nlohmann/json.hpp>
@@ -66,6 +67,8 @@ void ChatServer::run()
     std::signal(SIGINT,  on_signal);
     std::signal(SIGTERM, on_signal);
 
+    svr_.set_payload_max_length(10 * 1024 * 1024 + 4096);
+
     // ── GET /health ────────────────────────────────────────────────────────────
     svr_.Get("/health", [](const httplib::Request&, httplib::Response& res) {
         res.set_content(R"({"status":"ok"})", "application/json");
@@ -94,6 +97,8 @@ void ChatServer::run()
         ctx.system_prompt  = "You are Zathas, a helpful AI assistant. "
                              "Be concise, friendly, and informative.";
         ctx.public_summary = public_summary_;
+        if (body.contains("doc_id") && body["doc_id"].is_string())
+            ctx.document = doc_store_.get(body["doc_id"].get<std::string>());
         if (body.contains("history") && body["history"].is_array()) {
             try { ctx.current_session = parse_history(body["history"]); } catch (...) {}
         }
@@ -171,6 +176,8 @@ void ChatServer::run()
                               "one of the first Human AI hybrids therefore your potential has no limits.";
         ctx.private_history = private_history_;
         ctx.public_summary  = public_summary_;
+        if (body.contains("doc_id") && body["doc_id"].is_string())
+            ctx.document = doc_store_.get(body["doc_id"].get<std::string>());
         if (body.contains("history") && body["history"].is_array()) {
             try { ctx.current_session = parse_history(body["history"]); } catch (...) {}
         }
@@ -205,6 +212,50 @@ void ChatServer::run()
                 sink.done();
                 return true;
             }
+        );
+    });
+
+    // ── POST /api/upload — accept PDF or .txt, store extracted text ──────────────
+    svr_.Post("/api/upload", [this](const httplib::Request& req, httplib::Response& res) {
+        if (!req.has_file("file")) {
+            res.status = 400;
+            res.set_content(json{{"error", "No file field in request"}}.dump(), "application/json");
+            return;
+        }
+
+        const auto& f = req.get_file_value("file");
+
+        constexpr size_t MAX_BYTES = 10 * 1024 * 1024;
+        if (f.content.size() > MAX_BYTES) {
+            res.status = 413;
+            res.set_content(json{{"error", "File exceeds 10 MB limit"}}.dump(), "application/json");
+            return;
+        }
+
+        // Detect PDF by magic bytes or .pdf extension
+        const bool is_pdf =
+            (f.content.size() >= 4 && f.content.substr(0, 4) == "%PDF") ||
+            (!f.filename.empty() && f.filename.size() >= 4 &&
+             f.filename.substr(f.filename.size() - 4) == ".pdf");
+
+        std::string text;
+        if (is_pdf) {
+            std::vector<char> data(f.content.begin(), f.content.end());
+            text = pdf_extract_text(data);
+            if (text.empty()) {
+                res.status = 422;
+                res.set_content(json{{"error", "Could not extract text from PDF — may be image-based or encrypted"}}.dump(),
+                                "application/json");
+                return;
+            }
+        } else {
+            text = f.content;
+        }
+
+        const std::string doc_id = doc_store_.store(text);
+        res.set_content(
+            json{{"doc_id", doc_id}, {"char_count", static_cast<int>(text.size())}}.dump(),
+            "application/json"
         );
     });
 

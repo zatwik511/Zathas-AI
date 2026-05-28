@@ -9,6 +9,7 @@ export default function Prime() {
   const [authed, setAuthed] = useState(() => !!sessionStorage.getItem('prime_token'))
   const [loginInput, setLoginInput] = useState('')
   const [panelOpen, setPanelOpen] = useState(true)
+  const [doc, setDoc] = useState(null)   // { id, name } | null
   const bottomRef = useRef(null)
 
   function clearAuth() {
@@ -124,7 +125,13 @@ export default function Prime() {
           )}
         </main>
 
-        <ChatInput onSend={sendMessage} disabled={streaming} accent="zinc" />
+        <ChatInput
+          onSend={(text) => sendMessage(text, doc?.id)}
+          disabled={streaming}
+          accent="zinc"
+          doc={doc}
+          onDocChange={setDoc}
+        />
       </div>
     </div>
   )

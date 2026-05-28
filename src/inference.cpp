@@ -65,7 +65,18 @@ std::string InferenceEngine::build_prompt(const ContextLayers& ctx) const
             << "Understood. I have reviewed the available background knowledge.<|eot_id|>";
     }
 
-    // 3. Private history (past sessions verbatim)
+    // 3. Uploaded document — injected between world knowledge and private history
+    if (!ctx.document.empty()) {
+        const std::string doc_text = ctx.document.size() > 8000
+            ? ctx.document.substr(0, 8000) + "\n[document truncated]"
+            : ctx.document;
+        oss << "<|start_header_id|>user<|end_header_id|>\n\n"
+            << "<document>\n" << doc_text << "\n</document><|eot_id|>"
+            << "<|start_header_id|>assistant<|end_header_id|>\n\n"
+            << "Understood. I have read the uploaded document.<|eot_id|>";
+    }
+
+    // 4. Private history (past sessions verbatim)
     for (const auto& msg : ctx.private_history) {
         oss << "<|start_header_id|>" << msg.role << "<|end_header_id|>\n\n"
             << msg.content << "<|eot_id|>";

@@ -4,7 +4,7 @@ export function useChat(endpoint, extraHeaders = {}, { onUnauthorized } = {}) {
   const [messages, setMessages] = useState([])
   const [streaming, setStreaming] = useState(false)
 
-  async function sendMessage(text) {
+  async function sendMessage(text, docId = null) {
     const history = messages.map(({ role, content }) => ({ role, content }))
 
     setMessages(prev => [
@@ -18,7 +18,7 @@ export function useChat(endpoint, extraHeaders = {}, { onUnauthorized } = {}) {
       const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...extraHeaders },
-        body: JSON.stringify({ message: text, history })
+        body: JSON.stringify({ message: text, history, ...(docId ? { doc_id: docId } : {}) })
       })
 
       if (res.status === 401) {
