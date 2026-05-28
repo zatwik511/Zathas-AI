@@ -8,6 +8,14 @@ struct Message {
     std::string content;
 };
 
+// Tiered context passed to generate(). Built by the server on every request.
+struct ContextLayers {
+    std::string          system_prompt;
+    std::vector<Message> private_history;   // highest priority — loaded from saved sessions
+    std::string          public_summary;    // background knowledge; empty if no public memory
+    std::vector<Message> current_session;   // live turns from the current conversation
+};
+
 // Callbacks used during streaming generation.
 // on_token: called for each new token string.
 // on_done:  called when generation is complete.
@@ -26,9 +34,14 @@ public:
     InferenceEngine(const InferenceEngine&)            = delete;
     InferenceEngine& operator=(const InferenceEngine&) = delete;
 
-    // Generate a response given a conversation history.
-    // Calls on_token for each token produced, then on_done when finished.
-    // Returns the full generated text.
+    // Primary entry point: generate a response from tiered context layers.
+    std::string generate(const ContextLayers& ctx,
+                         int              max_tokens  = 512,
+                         float            temperature = 0.7f,
+                         const TokenCallback& on_token = {},
+                         const DoneCallback&  on_done  = {});
+
+    // Utility overload used internally (e.g. summarisation prompts in memory.cpp).
     std::string generate(const std::vector<Message>& history,
                          int              max_tokens  = 512,
                          float            temperature = 0.7f,
@@ -42,5 +55,6 @@ private:
     struct llama_context* ctx_   = nullptr;
     const struct llama_vocab* vocab_ = nullptr;
 
+    std::string build_prompt(const ContextLayers& ctx) const;
     std::string build_prompt(const std::vector<Message>& history) const;
 };

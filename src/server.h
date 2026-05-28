@@ -29,5 +29,6 @@ private:
     ServerConfig                      cfg_;
     ConversationMemory                memory_;
     std::vector<Message>              last_session_;
+    std::string                       public_summary_;
     httplib::Server                   svr_;
 };

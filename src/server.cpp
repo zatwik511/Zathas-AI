@@ -33,10 +33,22 @@ static std::vector<Message> parse_history(const json& j)
 
 // ── ChatServer ─────────────────────────────────────────────────────────────────
 
+static std::string load_public_summary()
+{
+    std::ifstream f("./memory/public/summary.txt");
+    if (!f.is_open()) return {};
+    std::ostringstream ss;
+    ss << f.rdbuf();
+    return ss.str();
+}
+
 ChatServer::ChatServer(std::shared_ptr<InferenceEngine> engine, const ServerConfig& config)
     : engine_(std::move(engine)), cfg_(config), memory_(MemoryType::PRIVATE, config.recent_depth)
 {
-    last_session_ = memory_.load_context();
+    last_session_   = memory_.load_context();
+    public_summary_ = load_public_summary();
+    if (!public_summary_.empty())
+        std::cout << "[server] Loaded public summary (" << public_summary_.size() << " bytes)\n";
 }
 
 void ChatServer::shutdown()
@@ -77,19 +89,21 @@ void ChatServer::run()
 
         const std::string user_msg = body["message"].get<std::string>();
 
-        // Build history: inject last session as prior context, then current session turns
-        std::vector<Message> history = last_session_;
+        // Assemble tiered context: public background → private history → current session
+        ContextLayers ctx;
+        ctx.system_prompt   = "You are Zathas, an AI assistant. "
+                              "Your own name is Zathas — not the user's name. "
+                              "Be concise and helpful. Never break character.";
+        ctx.private_history = last_session_;
+        ctx.public_summary  = public_summary_;
         if (body.contains("history") && body["history"].is_array()) {
-            try {
-                for (const auto& m : parse_history(body["history"]))
-                    history.push_back(m);
-            } catch (...) {}
+            try { ctx.current_session = parse_history(body["history"]); } catch (...) {}
         }
-        history.push_back({"user", user_msg});
+        ctx.current_session.push_back({"user", user_msg});
 
         try {
             std::string response = engine_->generate(
-                history, cfg_.max_tokens, cfg_.temperature
+                ctx, cfg_.max_tokens, cfg_.temperature
             );
 
             // Log this exchange to memory
