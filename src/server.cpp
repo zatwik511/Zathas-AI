@@ -127,6 +127,7 @@ void ChatServer::run()
 
     // Reached when svr_.stop() is called from shutdown()
     memory_.save_session();
-    memory_.summarise_old_sessions(*engine_);
+    memory_.finalise();                        // PUBLIC: append to summary.txt; PRIVATE: no-op
+    memory_.summarise_old_sessions(*engine_);  // PRIVATE: compress old sessions; PUBLIC: no-op
     std::cout << "[server] Goodbye.\n";
 }

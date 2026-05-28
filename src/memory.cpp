@@ -87,10 +87,28 @@ static std::vector<Message> parse_session_file(const fs::path& p)
     return msgs;
 }
 
+// Split summary.txt content into individual entries (each starts with "=== ... ===").
+static std::vector<std::string> parse_summary_entries(const std::string& text)
+{
+    std::vector<std::string> entries;
+    std::istringstream ss(text);
+    std::string line, current;
+    while (std::getline(ss, line)) {
+        if (line.size() > 4 && line.substr(0, 4) == "=== ") {
+            if (!current.empty()) entries.push_back(current);
+            current = line + "\n";
+        } else {
+            current += line + "\n";
+        }
+    }
+    if (!current.empty()) entries.push_back(current);
+    return entries;
+}
+
 // ── ConversationMemory ────────────────────────────────────────────────────────
 
-ConversationMemory::ConversationMemory(MemoryType type, int recent_depth)
-    : recent_depth_(recent_depth)
+ConversationMemory::ConversationMemory(MemoryType type, int recent_depth, InferenceEngine* engine)
+    : type_(type), recent_depth_(recent_depth), engine_(engine)
 {
     dir_ = (type == MemoryType::PRIVATE) ? "./memory/private/" : "./memory/public/";
     fs::create_directories(dir_);
@@ -125,6 +143,51 @@ void ConversationMemory::save_session()
 
     std::cout << "[memory] Saved " << current_session_.size() / 2
               << " exchanges to " << current_file_ << "\n";
+}
+
+void ConversationMemory::finalise()
+{
+    if (type_ != MemoryType::PUBLIC || engine_ == nullptr || current_session_.empty()) return;
+
+    std::string session_text = current_file_.empty() ? "" : read_file_text(current_file_);
+    if (session_text.empty()) return;
+
+    std::cout << "[memory] Summarising public session for summary.txt...\n";
+
+    static const char* kPrompt =
+        "You are a summarisation assistant. Below is a conversation between a user and "
+        "an AI assistant. Summarise the key topics discussed, questions asked, and any "
+        "notable patterns in how the user communicated. Be concise. Output plain text only.";
+
+    std::vector<Message> prompt = {{"user", std::string(kPrompt) + "\n\n" + session_text}};
+
+    std::string summary;
+    try {
+        summary = engine_->generate(prompt, 300, 0.3f);
+    } catch (const std::exception& e) {
+        std::cerr << "[memory] Public summarisation failed: " << e.what() << "\n";
+        return;
+    }
+
+    fs::path summary_path = fs::path(dir_) / "summary.txt";
+
+    // Load existing entries, cap at 49 to make room for the new one
+    static const int kMaxEntries = 50;
+    std::string existing = fs::exists(summary_path) ? read_file_text(summary_path) : "";
+    auto entries = parse_summary_entries(existing);
+    if (static_cast<int>(entries.size()) >= kMaxEntries)
+        entries.erase(entries.begin(), entries.begin() + (static_cast<int>(entries.size()) - kMaxEntries + 1));
+
+    entries.push_back("=== " + make_timestamp() + " ===\n" + summary + "\n\n");
+
+    std::ofstream f(summary_path);
+    if (!f.is_open()) {
+        std::cerr << "[memory] Warning: could not write " << summary_path.string() << "\n";
+        return;
+    }
+    for (const auto& e : entries) f << e;
+    std::cout << "[memory] Appended public summary (" << entries.size()
+              << "/" << kMaxEntries << " entries)\n";
 }
 
 std::vector<Message> ConversationMemory::load_context() const
@@ -173,6 +236,8 @@ std::vector<Message> ConversationMemory::load_context() const
 
 void ConversationMemory::summarise_old_sessions(InferenceEngine& engine, int max_tokens)
 {
+    if (type_ != MemoryType::PRIVATE) return;
+
     auto files     = collect_session_files(dir_);
     int  total     = static_cast<int>(files.size());
     int  old_count = std::max(0, total - recent_depth_);
