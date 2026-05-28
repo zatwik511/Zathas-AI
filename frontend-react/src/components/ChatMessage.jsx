@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { marked } from '../lib/markdown'
 
-export default function ChatMessage({ message }) {
+export default function ChatMessage({ message, accent = 'blue' }) {
   const isUser = message.role === 'user'
 
   // Only parse markdown when the message is fully received
@@ -10,10 +10,12 @@ export default function ChatMessage({ message }) {
     return marked.parse(message.content || '')
   }, [isUser, message.streaming, message.content])
 
+  const userBg = accent === 'zinc' ? 'bg-zinc-700' : 'bg-blue-600'
+
   if (isUser) {
     return (
       <div className="flex justify-end">
-        <div className="max-w-[70%] sm:max-w-[60%] bg-blue-600 text-white px-4 py-2.5 rounded-2xl rounded-br-none text-sm leading-relaxed whitespace-pre-wrap break-words">
+        <div className={`max-w-[70%] sm:max-w-[60%] ${userBg} text-white px-4 py-2.5 rounded-2xl rounded-br-none text-sm leading-relaxed whitespace-pre-wrap break-words`}>
           {message.content}
         </div>
       </div>

@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 
-export default function ChatInput({ onSend, disabled }) {
+export default function ChatInput({ onSend, disabled, accent = 'blue' }) {
   const [value, setValue] = useState('')
   const ref = useRef(null)
 
@@ -46,7 +46,7 @@ export default function ChatInput({ onSend, disabled }) {
           onClick={submit}
           disabled={disabled || !value.trim()}
           aria-label="Send"
-          className="shrink-0 w-9 h-9 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center transition-colors"
+          className={`shrink-0 w-9 h-9 rounded-xl disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center transition-colors ${accent === 'zinc' ? 'bg-zinc-700 hover:bg-zinc-600' : 'bg-blue-600 hover:bg-blue-700'}`}
         >
           <svg className="w-4 h-4 text-white" viewBox="0 0 24 24" fill="currentColor">
             <path d="M3.478 2.405a.75.75 0 00-.926.94l2.432 7.905H13.5a.75.75 0 010 1.5H4.984l-2.432 7.905a.75.75 0 00.926.94 60.519 60.519 0 0018.445-8.986.75.75 0 000-1.218A60.517 60.517 0 003.478 2.405z"/>

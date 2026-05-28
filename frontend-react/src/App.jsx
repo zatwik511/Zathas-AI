@@ -1,10 +1,10 @@
 import { useState, useRef, useEffect } from 'react'
 import ChatMessage from './components/ChatMessage'
 import ChatInput from './components/ChatInput'
+import { useChat } from './hooks/useChat'
 
 export default function App() {
-  const [messages, setMessages] = useState([])
-  const [streaming, setStreaming] = useState(false)
+  const { messages, streaming, sendMessage } = useChat('/api/chat')
   const [dark, setDark] = useState(true)
   const bottomRef = useRef(null)
 
@@ -15,94 +15,6 @@ export default function App() {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
-
-  async function sendMessage(text) {
-    const history = messages.map(({ role, content }) => ({ role, content }))
-
-    setMessages(prev => [
-      ...prev,
-      { role: 'user', content: text },
-      { role: 'assistant', content: '', streaming: true }
-    ])
-    setStreaming(true)
-
-    try {
-      const res = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text, history })
-      })
-
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-
-      const reader = res.body.getReader()
-      const decoder = new TextDecoder()
-      let buf = ''
-
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-
-        buf += decoder.decode(value, { stream: true })
-
-        let idx
-        while ((idx = buf.indexOf('\n\n')) !== -1) {
-          const line = buf.slice(0, idx)
-          buf = buf.slice(idx + 2)
-          if (!line.startsWith('data: ')) continue
-          try {
-            const data = JSON.parse(line.slice(6))
-            if (data.token) {
-              setMessages(prev => {
-                const next = [...prev]
-                const last = next[next.length - 1]
-                next[next.length - 1] = { ...last, content: last.content + data.token }
-                return next
-              })
-            }
-            if (data.done) {
-              setMessages(prev => {
-                const next = [...prev]
-                next[next.length - 1] = { ...next[next.length - 1], streaming: false }
-                return next
-              })
-            }
-            if (data.error) {
-              setMessages(prev => {
-                const next = [...prev]
-                next[next.length - 1] = {
-                  ...next[next.length - 1],
-                  streaming: false,
-                  content: `Error: ${data.error}`
-                }
-                return next
-              })
-            }
-          } catch { /* skip malformed SSE event */ }
-        }
-      }
-    } catch (err) {
-      setMessages(prev => {
-        const next = [...prev]
-        next[next.length - 1] = {
-          ...next[next.length - 1],
-          streaming: false,
-          content: 'Connection error. Is the server running?'
-        }
-        return next
-      })
-    } finally {
-      setStreaming(false)
-      // Safety net: clear streaming flag if the done event was missed
-      setMessages(prev => {
-        const next = [...prev]
-        if (next[next.length - 1]?.streaming) {
-          next[next.length - 1] = { ...next[next.length - 1], streaming: false }
-        }
-        return next
-      })
-    }
-  }
 
   function exportChat() {
     const md = messages

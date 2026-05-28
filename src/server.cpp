@@ -8,6 +8,8 @@
 #include <sstream>
 #include <stdexcept>
 #include <csignal>
+#include <filesystem>
+#include <algorithm>
 
 using json = nlohmann::json;
 
@@ -204,6 +206,47 @@ void ChatServer::run()
                 return true;
             }
         );
+    });
+
+    // ── GET /api/prime/memory — list private session files, token-gated ──────────
+    svr_.Get("/api/prime/memory", [this](const httplib::Request& req, httplib::Response& res) {
+        if (!cfg_.prime_token.empty()) {
+            const std::string auth     = req.get_header_value("Authorization");
+            const std::string expected = "Bearer " + cfg_.prime_token;
+            if (auth != expected) {
+                res.status = 401;
+                res.set_content(json{{"error", "Unauthorized"}}.dump(), "application/json");
+                return;
+            }
+        }
+
+        namespace fs = std::filesystem;
+        json files = json::array();
+        const fs::path dir = "./memory/private";
+
+        if (fs::exists(dir) && fs::is_directory(dir)) {
+            std::vector<fs::path> entries;
+            for (const auto& e : fs::directory_iterator(dir)) {
+                if (!e.is_regular_file()) continue;
+                const auto ext = e.path().extension().string();
+                if (ext == ".txt" || ext == ".summary") entries.push_back(e.path());
+            }
+            std::sort(entries.begin(), entries.end());
+
+            for (const auto& p : entries) {
+                std::ifstream f(p);
+                int lines = 0;
+                std::string line;
+                while (std::getline(f, line)) ++lines;
+                files.push_back({
+                    {"file", p.filename().string()},
+                    {"lines", lines},
+                    {"type", p.extension() == ".summary" ? "summary" : "session"}
+                });
+            }
+        }
+
+        res.set_content(json{{"sessions", files}}.dump(), "application/json");
     });
 
     // ── Serve static frontend files ────────────────────────────────────────────
