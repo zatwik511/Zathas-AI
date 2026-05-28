@@ -47,6 +47,10 @@ FetchContent_MakeAvailable(nlohmann_json)
 # Install via MSYS2: pacman -S mingw-w64-ucrt-x86_64-zlib
 find_package(ZLIB REQUIRED)
 
+# ── SQLite3 (for analytics) ───────────────────────────────────────────────────
+# Install via MSYS2: pacman -S mingw-w64-ucrt-x86_64-sqlite3
+find_package(SQLite3 REQUIRED)
+
 # ── Main executable ────────────────────────────────────────────────────────────
 add_executable(zathas_ai
   src/main.cpp
@@ -54,6 +58,7 @@ add_executable(zathas_ai
   src/server.cpp
   src/memory.cpp
   src/pdf_extract.cpp
+  src/analytics.cpp
 )
 
 target_include_directories(zathas_ai PRIVATE
@@ -65,6 +70,7 @@ target_link_libraries(zathas_ai PRIVATE
   httplib::httplib
   nlohmann_json::nlohmann_json
   ZLIB::ZLIB
+  SQLite3::SQLite3
 )
 
 # Copy frontend files next to the binary after build

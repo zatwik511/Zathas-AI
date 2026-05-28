@@ -2,6 +2,7 @@
 #include "inference.h"
 #include "memory.h"
 #include "docstore.h"
+#include "analytics.h"
 #include <httplib.h>
 #include <string>
 #include <memory>
@@ -34,5 +35,6 @@ private:
     std::vector<Message>              private_history_;
     std::string                       public_summary_;
     DocStore                          doc_store_;
+    AnalyticsDB                       analytics_;
     httplib::Server                   svr_;
 };

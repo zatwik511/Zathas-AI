@@ -11,6 +11,7 @@
 #include <csignal>
 #include <filesystem>
 #include <algorithm>
+#include <chrono>
 
 using json = nlohmann::json;
 
@@ -107,8 +108,9 @@ void ChatServer::run()
         res.set_header("Cache-Control", "no-cache");
         res.set_header("X-Accel-Buffering", "no");
 
+        const bool has_doc_pub = !ctx.document.empty();
         res.set_chunked_content_provider("text/event-stream",
-            [this, ctx = std::move(ctx), user_msg](size_t, httplib::DataSink& sink) mutable {
+            [this, ctx = std::move(ctx), user_msg, has_doc_pub](size_t, httplib::DataSink& sink) mutable {
                 auto write_sse = [&](const std::string& data) {
                     std::string frame = "data: " + data + "\n\n";
                     sink.write(frame.c_str(), frame.size());
@@ -116,6 +118,7 @@ void ChatServer::run()
 
                 std::string full_response;
                 try {
+                    const auto t0 = std::chrono::steady_clock::now();
                     full_response = engine_->generate(
                         ctx, cfg_.max_tokens, cfg_.temperature,
                         [&](const std::string& piece) {
@@ -125,7 +128,13 @@ void ChatServer::run()
                             write_sse(R"({"done":true})");
                         }
                     );
+                    const auto gen_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                        std::chrono::steady_clock::now() - t0).count();
                     public_memory_.record(user_msg, full_response);
+                    analytics_.log_request("public",
+                        static_cast<int>(user_msg.size()),
+                        static_cast<int>(full_response.size()),
+                        gen_ms, has_doc_pub);
                 } catch (const std::exception& e) {
                     write_sse(json{{"error", std::string(e.what())}}.dump());
                 }
@@ -186,8 +195,9 @@ void ChatServer::run()
         res.set_header("Cache-Control", "no-cache");
         res.set_header("X-Accel-Buffering", "no");
 
+        const bool has_doc_prv = !ctx.document.empty();
         res.set_chunked_content_provider("text/event-stream",
-            [this, ctx = std::move(ctx), user_msg](size_t, httplib::DataSink& sink) mutable {
+            [this, ctx = std::move(ctx), user_msg, has_doc_prv](size_t, httplib::DataSink& sink) mutable {
                 auto write_sse = [&](const std::string& data) {
                     std::string frame = "data: " + data + "\n\n";
                     sink.write(frame.c_str(), frame.size());
@@ -195,6 +205,7 @@ void ChatServer::run()
 
                 std::string full_response;
                 try {
+                    const auto t0 = std::chrono::steady_clock::now();
                     full_response = engine_->generate(
                         ctx, cfg_.max_tokens, cfg_.temperature,
                         [&](const std::string& piece) {
@@ -204,7 +215,13 @@ void ChatServer::run()
                             write_sse(R"({"done":true})");
                         }
                     );
+                    const auto gen_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                        std::chrono::steady_clock::now() - t0).count();
                     private_memory_.record(user_msg, full_response);
+                    analytics_.log_request("prime",
+                        static_cast<int>(user_msg.size()),
+                        static_cast<int>(full_response.size()),
+                        gen_ms, has_doc_prv);
                 } catch (const std::exception& e) {
                     write_sse(json{{"error", std::string(e.what())}}.dump());
                 }
@@ -298,6 +315,20 @@ void ChatServer::run()
         }
 
         res.set_content(json{{"sessions", files}}.dump(), "application/json");
+    });
+
+    // ── GET /api/admin/stats — analytics JSON, token-gated ───────────────────────
+    svr_.Get("/api/admin/stats", [this](const httplib::Request& req, httplib::Response& res) {
+        if (!cfg_.prime_token.empty()) {
+            const std::string auth     = req.get_header_value("Authorization");
+            const std::string expected = "Bearer " + cfg_.prime_token;
+            if (auth != expected) {
+                res.status = 401;
+                res.set_content(json{{"error", "Unauthorized"}}.dump(), "application/json");
+                return;
+            }
+        }
+        res.set_content(analytics_.get_stats(), "application/json");
     });
 
     // ── Serve static frontend files ────────────────────────────────────────────
