@@ -11,7 +11,6 @@
 
 using json = nlohmann::json;
 
-// Global pointer so the signal handler can flush memory on Ctrl-C
 static ChatServer* g_server = nullptr;
 
 static void on_signal(int)
@@ -39,8 +38,6 @@ static std::string load_public_summary()
 
 // ── ChatServer ─────────────────────────────────────────────────────────────────
 
-// engine_ must be initialised before public_memory_ (which captures engine_.get()).
-// Member declaration order in server.h guarantees this.
 ChatServer::ChatServer(std::shared_ptr<InferenceEngine> engine, const ServerConfig& config)
     : engine_(std::move(engine)),
       cfg_(config),
@@ -72,7 +69,7 @@ void ChatServer::run()
         res.set_content(R"({"status":"ok"})", "application/json");
     });
 
-    // ── POST /api/chat — public persona, no private context ───────────────────
+    // ── POST /api/chat — public persona, SSE streaming ────────────────────────
     svr_.Post("/api/chat", [this](const httplib::Request& req, httplib::Response& res) {
         json body;
         try { body = json::parse(req.body); }
@@ -82,7 +79,6 @@ void ChatServer::run()
                             "application/json");
             return;
         }
-
         if (!body.contains("message") || !body["message"].is_string()) {
             res.status = 400;
             res.set_content(json{{"error", "Missing or invalid 'message' field"}}.dump(),
@@ -96,26 +92,45 @@ void ChatServer::run()
         ctx.system_prompt  = "You are Zathas, a helpful AI assistant. "
                              "Be concise, friendly, and informative.";
         ctx.public_summary = public_summary_;
-        // private_history intentionally empty on the public route
         if (body.contains("history") && body["history"].is_array()) {
             try { ctx.current_session = parse_history(body["history"]); } catch (...) {}
         }
         ctx.current_session.push_back({"user", user_msg});
 
-        try {
-            std::string response = engine_->generate(ctx, cfg_.max_tokens, cfg_.temperature);
-            public_memory_.record(user_msg, response);
-            res.set_content(json{{"response", response}}.dump(), "application/json");
-        } catch (const std::exception& e) {
-            res.status = 500;
-            res.set_content(json{{"error", std::string("Inference error: ") + e.what()}}.dump(),
-                            "application/json");
-        }
+        res.set_header("Cache-Control", "no-cache");
+        res.set_header("X-Accel-Buffering", "no");
+
+        res.set_chunked_content_provider("text/event-stream",
+            [this, ctx = std::move(ctx), user_msg](size_t, httplib::DataSink& sink) mutable {
+                auto write_sse = [&](const std::string& data) {
+                    std::string frame = "data: " + data + "\n\n";
+                    sink.write(frame.c_str(), frame.size());
+                };
+
+                std::string full_response;
+                try {
+                    full_response = engine_->generate(
+                        ctx, cfg_.max_tokens, cfg_.temperature,
+                        [&](const std::string& piece) {
+                            write_sse(json{{"token", piece}}.dump());
+                        },
+                        [&]() {
+                            write_sse(R"({"done":true})");
+                        }
+                    );
+                    public_memory_.record(user_msg, full_response);
+                } catch (const std::exception& e) {
+                    write_sse(json{{"error", std::string(e.what())}}.dump());
+                }
+
+                sink.done();
+                return true;
+            }
+        );
     });
 
-    // ── POST /api/prime — private persona, full context, token-gated ──────────
+    // ── POST /api/prime — private persona, SSE streaming, token-gated ─────────
     svr_.Post("/api/prime", [this](const httplib::Request& req, httplib::Response& res) {
-        // Auth — skip only if no token is configured (local dev / testing)
         if (!cfg_.prime_token.empty()) {
             const std::string auth     = req.get_header_value("Authorization");
             const std::string expected = "Bearer " + cfg_.prime_token;
@@ -134,7 +149,6 @@ void ChatServer::run()
                             "application/json");
             return;
         }
-
         if (!body.contains("message") || !body["message"].is_string()) {
             res.status = 400;
             res.set_content(json{{"error", "Missing or invalid 'message' field"}}.dump(),
@@ -160,15 +174,36 @@ void ChatServer::run()
         }
         ctx.current_session.push_back({"user", user_msg});
 
-        try {
-            std::string response = engine_->generate(ctx, cfg_.max_tokens, cfg_.temperature);
-            private_memory_.record(user_msg, response);
-            res.set_content(json{{"response", response}}.dump(), "application/json");
-        } catch (const std::exception& e) {
-            res.status = 500;
-            res.set_content(json{{"error", std::string("Inference error: ") + e.what()}}.dump(),
-                            "application/json");
-        }
+        res.set_header("Cache-Control", "no-cache");
+        res.set_header("X-Accel-Buffering", "no");
+
+        res.set_chunked_content_provider("text/event-stream",
+            [this, ctx = std::move(ctx), user_msg](size_t, httplib::DataSink& sink) mutable {
+                auto write_sse = [&](const std::string& data) {
+                    std::string frame = "data: " + data + "\n\n";
+                    sink.write(frame.c_str(), frame.size());
+                };
+
+                std::string full_response;
+                try {
+                    full_response = engine_->generate(
+                        ctx, cfg_.max_tokens, cfg_.temperature,
+                        [&](const std::string& piece) {
+                            write_sse(json{{"token", piece}}.dump());
+                        },
+                        [&]() {
+                            write_sse(R"({"done":true})");
+                        }
+                    );
+                    private_memory_.record(user_msg, full_response);
+                } catch (const std::exception& e) {
+                    write_sse(json{{"error", std::string(e.what())}}.dump());
+                }
+
+                sink.done();
+                return true;
+            }
+        );
     });
 
     // ── Serve static frontend files ────────────────────────────────────────────
@@ -196,7 +231,7 @@ void ChatServer::run()
     // Reached when svr_.stop() is called from shutdown()
     private_memory_.save_session();
     public_memory_.save_session();
-    public_memory_.finalise();                          // appends to summary.txt
-    private_memory_.summarise_old_sessions(*engine_);  // compresses old private sessions
+    public_memory_.finalise();
+    private_memory_.summarise_old_sessions(*engine_);
     std::cout << "[server] Goodbye.\n";
 }
