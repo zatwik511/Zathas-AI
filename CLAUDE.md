@@ -1,0 +1,1 @@
+I am working on an existing C++ AI chatbot project. Do not rewrite files unless I explicitly ask. Read existing files before modifying them. Ask me before making any architectural decisions not covered in the prompt.
