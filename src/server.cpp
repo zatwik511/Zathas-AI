@@ -42,17 +42,21 @@ static std::string load_public_summary()
 
 // ── ChatServer ─────────────────────────────────────────────────────────────────
 
-ChatServer::ChatServer(std::shared_ptr<InferenceEngine> engine, const ServerConfig& config)
-    : engine_(std::move(engine)),
+ChatServer::ChatServer(std::shared_ptr<InferenceEngine>  private_engine,
+                       std::shared_ptr<IInferenceEngine> public_engine,
+                       const ServerConfig& config)
+    : private_engine_(std::move(private_engine)),
+      public_engine_(std::move(public_engine)),
       cfg_(config),
       private_memory_(MemoryType::PRIVATE, config.recent_depth),
-      public_memory_(MemoryType::PUBLIC,  config.recent_depth, engine_.get())
+      public_memory_(MemoryType::PUBLIC,  config.recent_depth, private_engine_.get())
 {
     private_history_ = private_memory_.load_context();
     public_summary_  = load_public_summary();
     if (!public_summary_.empty())
         std::cout << "[server] Loaded public summary (" << public_summary_.size() << " bytes)\n";
     std::cout << "[server] Prime token: " << (cfg_.prime_token.empty() ? "not set" : "configured") << "\n";
+    std::cout << "[server] Private route: " << (private_engine_ ? "local model" : "disabled") << "\n";
 }
 
 void ChatServer::shutdown()
@@ -119,7 +123,7 @@ void ChatServer::run()
                 std::string full_response;
                 try {
                     const auto t0 = std::chrono::steady_clock::now();
-                    full_response = engine_->generate(
+                    full_response = public_engine_->generate(
                         ctx, cfg_.max_tokens, cfg_.temperature,
                         [&](const std::string& piece) {
                             write_sse(json{{"token", piece}}.dump());
@@ -147,6 +151,11 @@ void ChatServer::run()
 
     // ── POST /api/prime — private persona, SSE streaming, token-gated ─────────
     svr_.Post("/api/prime", [this](const httplib::Request& req, httplib::Response& res) {
+        if (!private_engine_) {
+            res.status = 503;
+            res.set_content(json{{"error", "Private route unavailable"}}.dump(), "application/json");
+            return;
+        }
         if (!cfg_.prime_token.empty()) {
             const std::string auth     = req.get_header_value("Authorization");
             const std::string expected = "Bearer " + cfg_.prime_token;
@@ -206,7 +215,7 @@ void ChatServer::run()
                 std::string full_response;
                 try {
                     const auto t0 = std::chrono::steady_clock::now();
-                    full_response = engine_->generate(
+                    full_response = private_engine_->generate(
                         ctx, cfg_.max_tokens, cfg_.temperature,
                         [&](const std::string& piece) {
                             write_sse(json{{"token", piece}}.dump());
@@ -357,6 +366,7 @@ void ChatServer::run()
     private_memory_.save_session();
     public_memory_.save_session();
     public_memory_.finalise();
-    private_memory_.summarise_old_sessions(*engine_);
+    if (private_engine_)
+        private_memory_.summarise_old_sessions(*private_engine_);
     std::cout << "[server] Goodbye.\n";
 }

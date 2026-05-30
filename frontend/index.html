@@ -4,8 +4,15 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Zathas</title>
-    <script type="module" crossorigin src="/assets/index-CYkPHLQ-.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-DqlXGAUq.css">
+    <script>
+      function setVh() {
+        document.documentElement.style.setProperty('--app-height', window.innerHeight + 'px');
+      }
+      setVh();
+      window.addEventListener('resize', setVh);
+    </script>
+    <script type="module" crossorigin src="/assets/index-CVouSB2N.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-CYiQ1b_2.css">
   </head>
   <body>
     <div id="root"></div>

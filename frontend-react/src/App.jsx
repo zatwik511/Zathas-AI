@@ -31,7 +31,7 @@ export default function App() {
   }
 
   return (
-    <div className="h-screen flex flex-col bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 transition-colors duration-200">
+    <div className="h-full flex flex-col bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 transition-colors duration-200">
       <header className="shrink-0 flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700">
         <span className="text-sm font-medium text-gray-400 dark:text-gray-500 select-none">
           Zathas

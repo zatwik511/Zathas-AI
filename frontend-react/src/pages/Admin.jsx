@@ -74,7 +74,7 @@ export default function Admin() {
 
   if (!authed) {
     return (
-      <div className="h-screen flex items-center justify-center bg-black">
+      <div className="h-full flex items-center justify-center bg-black">
         <form onSubmit={handleLogin} className="flex gap-2">
           <input
             type="password"

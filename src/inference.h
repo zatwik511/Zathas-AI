@@ -23,7 +23,18 @@ struct ContextLayers {
 using TokenCallback = std::function<void(const std::string& token)>;
 using DoneCallback  = std::function<void()>;
 
-class InferenceEngine {
+// Abstract interface — implemented by InferenceEngine (local) and CloudInferenceEngine (API).
+class IInferenceEngine {
+public:
+    virtual ~IInferenceEngine() = default;
+    virtual std::string generate(const ContextLayers& ctx,
+                                 int              max_tokens  = 512,
+                                 float            temperature = 0.7f,
+                                 const TokenCallback& on_token = {},
+                                 const DoneCallback&  on_done  = {}) = 0;
+};
+
+class InferenceEngine : public IInferenceEngine {
 public:
     explicit InferenceEngine(const std::string& model_path,
                              int   n_ctx       = 4096,
@@ -40,7 +51,7 @@ public:
                          int              max_tokens  = 512,
                          float            temperature = 0.7f,
                          const TokenCallback& on_token = {},
-                         const DoneCallback&  on_done  = {});
+                         const DoneCallback&  on_done  = {}) override;
 
     // Utility overload used internally (e.g. summarisation prompts in memory.cpp).
     std::string generate(const std::vector<Message>& history,

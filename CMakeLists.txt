@@ -23,6 +23,10 @@ set(LLAMA_BUILD_EXAMPLES  OFF CACHE BOOL "" FORCE)
 set(LLAMA_BUILD_SERVER    OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(llama_cpp)
 
+# ── OpenSSL (for cloud inference HTTPS calls) ─────────────────────────────────
+# Install via MSYS2: pacman -S mingw-w64-ucrt-x86_64-openssl
+find_package(OpenSSL REQUIRED)
+
 # ── cpp-httplib ────────────────────────────────────────────────────────────────
 FetchContent_Declare(
   httplib
@@ -30,7 +34,7 @@ FetchContent_Declare(
   GIT_TAG        v0.18.5
   GIT_SHALLOW    TRUE
 )
-set(HTTPLIB_USE_OPENSSL_IF_AVAILABLE OFF CACHE BOOL "" FORCE)
+set(HTTPLIB_USE_OPENSSL_IF_AVAILABLE ON  CACHE BOOL "" FORCE)
 set(HTTPLIB_USE_ZLIB_IF_AVAILABLE   OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(httplib)
 
@@ -55,6 +59,7 @@ find_package(SQLite3 REQUIRED)
 add_executable(zathas_ai
   src/main.cpp
   src/inference.cpp
+  src/cloud_inference.cpp
   src/server.cpp
   src/memory.cpp
   src/pdf_extract.cpp

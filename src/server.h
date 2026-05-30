@@ -19,7 +19,11 @@ struct ServerConfig {
 
 class ChatServer {
 public:
-    ChatServer(std::shared_ptr<InferenceEngine> engine, const ServerConfig& config);
+    // private_engine: local llama.cpp model (may be nullptr on cloud-only deploys).
+    // public_engine:  used for /api/chat — may be cloud or the same local engine.
+    ChatServer(std::shared_ptr<InferenceEngine>  private_engine,
+               std::shared_ptr<IInferenceEngine> public_engine,
+               const ServerConfig& config);
 
     // Blocks until the server stops (Ctrl-C / SIGINT).
     void run();
@@ -28,7 +32,8 @@ public:
     void shutdown();
 
 private:
-    std::shared_ptr<InferenceEngine>  engine_;
+    std::shared_ptr<InferenceEngine>  private_engine_;  // local; nullptr = prime disabled
+    std::shared_ptr<IInferenceEngine> public_engine_;   // cloud or local
     ServerConfig                      cfg_;
     ConversationMemory                private_memory_;
     ConversationMemory                public_memory_;
